@@ -1,0 +1,208 @@
+// MIPS Architecture Single-Cycle Processor
+// Jesus Abraham Lizarraga Banuelos
+// Apr-17-2019
+// MIPS_arch_single.sv
+//
+
+timeunit 1ns;
+timeprecision 100ps;
+
+module MIPS_arch_single
+#(
+   parameter BIT_WIDTH=32,
+   parameter REG_WIDTH = $clog2(BIT_WIDTH),
+   parameter BIT_SEL=3,
+   parameter BIT_CTRL=5
+)
+(
+  input logic clk, rst,
+  input logic W_UART,
+  input logic [BIT_WIDTH-1:0] UART_DATA,
+  output logic [BIT_WIDTH-1:0] UART_RX
+);
+
+logic [BIT_WIDTH-1:0] pc_rom, Addresult_4, Addresult2_j,PC_instruction, mux4_Add1,mux8_PC, reg_2ALUA,reg_2ALUB,mux_regWD3,mux7_selregWD3, SignImm, Jaddress, Shifl2_out, mux_bench_out, SrcB,SrcA,ALUResult, Read_Data_RAM;
+logic [REG_WIDTH-1:0] mux_regWriteA3;
+logic PCEn,RegWrite,MemtoReg,ALUSrcA, ALUSrcB;
+logic [1:0] RegDst;
+logic jump,jregister;
+logic MemWrite;
+logic Zero;
+logic [BIT_SEL:0] ALUControl;
+
+pc_reg pc
+(
+ .Read_Data(pc_rom),
+ .Write_Data(mux8_PC),
+ .en(PCWrite),
+ .clk(clk),
+ .rst(rst)
+);
+
+Add Add1_4
+(
+ .AddResult(Addresult_4),
+ .SrcA(pc_rom),
+ .SrcB(32'h4)
+);
+
+mem_arch_ROM mem_arch_ROM1
+(
+ .Read_Data_out(PC_instruction),
+ .Address_in(pc_rom)
+);
+
+mux_3 mux_A3
+(
+ .Mux_out(mux_regWriteA3),
+ .Mux_in0(PC_instruction[20:16]),
+ .Mux_in1(PC_instruction[15:11]),
+ .Mux_in2(32'h1F),
+ .sel(RegDst)
+);
+
+register_file reg_file
+(
+ .Read_Data_1(reg_2ALUA),
+ .Read_Data_2(reg_2ALUB),		
+ .Write_Data(mux7_selregWD3),
+ .Write_reg(mux_regWriteA3),
+ .Read_reg1(PC_instruction[25:21]),
+ .Read_reg2(PC_instruction[20:16]),
+ .write(RegWrite),
+ .clk(clk),
+ .rst(rst)
+
+);
+
+signextend sign_ext
+(
+ .SignImm(SignImm),
+ .half_sign_in(PC_instruction[15:0])
+);
+
+Shiftl2 shft_Jaddress
+(
+ .Shifl2_out(Jaddress),
+ .SignImm({6'd0,PC_instruction[25:0]})
+);
+
+Shiftl2 shftl2
+(
+ .Shifl2_out(Shifl2_out),
+ .SignImm(SignImm)
+);
+
+Add Add2_j
+(
+ .AddResult(Addresult2_j),
+ .SrcA(Addresult_4),
+ .SrcB(Shifl2_out)
+);
+
+mux_2 mux3_bench
+(
+ .Mux_out(mux_bench_out),
+ .Mux_in0(Addresult_4),
+ .Mux_in1(Addresult2_j),
+ .sel(PCEn)
+);
+
+mux_2 mux4_jal
+(
+ .Mux_out(mux4_Add1),
+ .Mux_in0(mux_bench_out),
+ .Mux_in1({Addresult_4[31:28],Jaddress[27:0]}),
+ .sel(jump)
+);
+
+mux_2 mux8_jregister
+(
+ .Mux_out(mux8_PC),
+ .Mux_in0(mux4_Add1),
+ .Mux_in1(SrcA),
+ .sel(jregister)
+);
+
+mux_2 mux2_regALU
+(
+ .Mux_out(SrcB),
+ .Mux_in0(reg_2ALUB),
+ .Mux_in1(SignImm),
+ .sel(ALUSrcB)
+);
+
+mux_2 mux6_regALU
+(
+ .Mux_out(SrcA),
+ .Mux_in0(reg_2ALUA),
+ .Mux_in1(PC_instruction[10:6]),
+ .sel(ALUSrcA)
+);
+
+mux_2 mux7_WD
+(
+ .Mux_out(mux7_selregWD3),
+ .Mux_in0(mux_regWD3),
+ .Mux_in1(Addresult_4),
+ .sel(RegDst[1])
+);
+
+
+ALU ALU1
+(
+ .ALUResult(ALUResult),
+ .SrcA(SrcA),
+ .SrcB(SrcB),
+ .ALUControl(ALUControl),
+ .Zero(Zero)
+);
+
+mem_arch_RAM mem_arch_RAM1
+(
+ .Read_Data_out(Read_Data_RAM),
+ .Write_Data_in(reg_2ALUB),
+ .Address_in(ALUResult),
+ .MemWrite(MemWrite),
+ .clk(clk),
+ .WRITE_UART(UART_DATA),
+ .W_UART(W_UART),
+ .READ_UART(UART_RX)
+);
+
+mux_2 mux5_RAMOUT
+(
+ .Mux_out(mux_regWD3),
+ .Mux_in0(ALUResult),
+ .Mux_in1(Read_Data_RAM),
+ .sel(MemtoReg)
+);
+
+misc_logic mlogic1
+(
+ .jump(jump),
+ .alu_zero(Zero),
+ .branch(branch),
+ .PCEn(PCEn)
+);
+
+CU_single_cycle control_unit
+(
+ .clk(clk),
+ .rst(rst),
+ .MemWrite(MemWrite),
+ .Op(PC_instruction[31:26]),
+ .Funct(PC_instruction[5:0]),
+ .RegWrite(RegWrite),
+ .ALUSrcA(ALUSrcA),
+ .ALUSrcB(ALUSrcB),
+ .ALUControl(ALUControl),
+ .Branch(branch),
+ .PCWrite(PCWrite), 
+ .MemtoReg(MemtoReg),
+ .RegDst(RegDst),
+ .jump(jump),
+ .jregister(jregister)
+);
+
+endmodule
